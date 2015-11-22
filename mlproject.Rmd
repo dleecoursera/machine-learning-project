@@ -1,0 +1,106 @@
+---
+title: "Practical Machine Learning Course Project: Model Construction"
+output: html_document
+---
+
+David Lee
+
+In the course project, the activity type (classe variable) was predicted for 20 records from the Weight Lifting Exercise Dataset (http://groupware.les.inf.puc-rio.br/har).  This report describes how the model used for the predictions was generated.  
+
+First, the required libraries were loaded, and the appropriate datasets were read in.  The code was also set to use parallel processing.
+```{r message=FALSE, warning=FALSE}
+setwd("C:\\coursera")
+library(caret)
+library(doParallel)
+registerDoParallel(cores=2)
+dataset <- read.csv("pml-training.csv")
+finaltest <- read.csv("pml-testing.csv")
+```
+
+The main dataset was divided into training and testing groups, with 60% used for training.
+```{r}
+set.seed(100)
+inTrain <- createDataPartition(y=dataset$classe, p=0.6, list=FALSE)
+training <- dataset[inTrain,]
+testing <- dataset[-inTrain,]
+```
+
+Examining the training dataset showed that it contains a large number of NA values(results of str(training) omitted to save space). 
+```{r include=FALSE}
+str(training)
+```
+```{r}
+table(is.na(training))
+```
+
+Two major approaches were considered for dealing with the NA values.  The first was to impute all the missing values, but because there were so many missing values in some columns, the validity of imputed values seemed questionable.  Because of this, the second approach considered was to simply remove all the missing values from the dataset, and only predict using the variables with complete data. 
+
+Before doing other data manipulation, the timestamp and user information in columns 1:7 of the dataset was removed, as it was not relevant to the activity performed and the numeric values could affect the model fit.
+
+```{r}
+training2 <- training[,-c(1:7)]
+```
+
+There were also many columns with near zero variation; these were removed as well to simplify the model.
+
+```{r}
+nzv <- nearZeroVar(training2)
+training2 <- training2[,-nzv]
+```
+
+Two versions of the training data were then made; one had the missing values imputed and one had them removed. 
+
+```{r}
+pp1 <- preProcess(training2, method="bagImpute")
+imputed <- predict(pp1, training2)
+removed <- training2[colSums(is.na(training2)) == 0]
+```
+
+These groups were used for training various predictive models.  10-fold cross validation was used as it had good speed and reasonable accuracy (comparable to the default bootstrap resampling). For testing the models, linear discriminant analysis was used for its speed.
+
+```{r}
+tcontrol <- trainControl(method="cv", number=10)
+modelfit1 <- train(classe~., data=imputed, method="lda", trControl=tcontrol)
+modelfit1
+modelfit2 <- train(classe~., data=removed, method="lda", trControl=tcontrol)
+modelfit2
+```
+
+The models were also trained with principal component analysis, but this dropped the accuracy by a fairly large margin even in cross-validation, so the models with PCA were not used. 
+
+```{r}
+modelfit1pca <- train(classe~., data=imputed, method="lda", preProcess="pca", trControl=tcontrol)
+modelfit1pca
+modelfit2pca <- train(classe~., data=removed, method="lda", preProcess="pca", trControl=tcontrol)
+modelfit2pca
+```
+
+The accuracy values reported in these results estimate the out of sample error when predicting against the folds used in cross validation.  Comparing all the results, the model using the imputed data was clearly the most accurate in the cross validation stage.  The accuracy of the imputed and removed models was then checked on the unused testing data to confirm the cross validation results.  To apply the model that used the imputed data to the testing set, the testing set had to be imputed as the training data was.
+
+```{r}
+testing2 <- testing[,-c(1:7)]
+testing2 <- testing2[,-nzv]
+testingimputed <- predict(pp1, testing2)
+testpred1 <- predict(modelfit1, testingimputed)
+testpred2 <- predict(modelfit2, testing)
+confusionMatrix(testpred1, testingimputed$classe)
+confusionMatrix(testpred2, testing$classe)
+```
+
+The accuracy values shown in the confusion matrices represent the estimated out of sample error when using data completely unrelated to the training process.  Both values were quite consistent with the values reported after cross validation, so the model built on the imputed values was chosen for further use.  To improve the accuracy of the model, the imputed dataset was trained with the random forest method.
+
+```{r}
+modelfit1rf <- train(classe~., data=imputed, method="rf", trControl=tcontrol)
+modelfit1rf
+```
+
+The random forest model was then applied to the test set.
+
+```{r}
+testpredrf <- predict(modelfit1rf, testingimputed)
+confusionMatrix(testpredrf, testingimputed$classe)
+```
+
+The accuracy was estimated as 0.9927 in cross validation, and as 0.9945 on the test set.  Therefore, the estimated out of sample error was 0.073 in cross validation and 0.055 on the testing data.  This suggested that the random forest model was highly accurate on new data, and it was used to make the final predictions.
+
+Note: the group with the data removed was also used to train a random forest model (not shown for compilation speed), and the accuracy difference was consistent with the lda models (the imputed group gave a more accurate model).
