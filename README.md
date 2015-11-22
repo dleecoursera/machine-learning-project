@@ -1,4 +1,4 @@
 # machine-learning-project
 Course project for Practical Machine Learning
 
-Note: Viewing the .html file via gh-pages isn't working for me, so currently you'll have to download the files (the "Download ZIP" button should do it).
+Edit: The .html file should now be viewable by gh-pages at http://dleecoursera.github.io/machine-learning-project/mlproject.html
